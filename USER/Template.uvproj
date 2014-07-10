@@ -415,6 +415,11 @@
               <FilePath>.\stm32f10x_it.c</FilePath>
             </File>
             <File>
+              <FileName>readme.txt</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\readme.txt</FilePath>
+            </File>
+            <File>
               <FileName>system_stm32f10x.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\system_stm32f10x.c</FilePath>
