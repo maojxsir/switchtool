@@ -3,6 +3,13 @@
 *.ko
 *.obj
 *.elf
+*.d
+*.crf
+*.lnp
+*.iex
+*.axf
+*.htm
+*.bak
 
 # Libraries
 *.lib
