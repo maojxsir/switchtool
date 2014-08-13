@@ -9,7 +9,8 @@
 ////////////////////////////////////////////////////////////////////////////////// 	  
 extern u8 uUartRecvFlag;
 extern u8 g_uExitPwmFlag; //CTRl+C (0x03)结束PWM执行
-
+extern Delay(u32 count);
+	
 //////////////////////////////////////////////////////////////////
 //加入以下代码,支持printf函数,而不需要选择use MicroLIB	  
 #if 1
@@ -116,9 +117,12 @@ void uart_init(u32 bound){
 	USART_Cmd(USART1, ENABLE);                    //使能串口 
 
 }
+
+
 #if EN_USART1_RX   //如果使能了接收
 void USART1_IRQHandler(void)                	//串口1中断服务程序
 {
+
 u8 Res;
 #ifdef OS_TICKS_PER_SEC	 	//如果时钟节拍数定义了,说明要使用ucosII了.
 OSIntEnter();    
@@ -151,16 +155,26 @@ if(USART_GetITStatus(USART1, USART_IT_RXNE) != RESET)  //接收中断(接收到的数据必
 			if(Res==0x0d)
 			{
 				USART_RX_STA|=0x4000;
+				uUartRecvFlag = 1;
+				USART_RX_STA|=0x8000;	//接收完成了
 				USART_RX_BUF[USART_RX_STA&0X3FFF]=Res ; //recv \r
 				USART_RX_STA++;
+				printf("\r\n>");
 			}
 			else
 			{
-				if( (Res == 0x08) & (USART_RX_STA >1) )//支持删除
+				if( (Res == 0x08)  )//支持删除
 				{
-					USART_RX_STA--;
-					USART_RX_BUF[USART_RX_STA&0X3FFF]=Res ;
-					USART_SendData(USART1,Res); //echo back
+					if(USART_RX_STA >0)
+					{
+							USART_RX_STA--;
+							USART_RX_BUF[USART_RX_STA&0X3FFF]='\0' ;
+							USART_SendData(USART1,0x08); //echo back
+						  Delay(200);
+						  USART_SendData(USART1,0x20); //echo back
+						  Delay(2000);
+						  USART_SendData(USART1,0x08); //echo back
+					}
 				}
 				else
 				{

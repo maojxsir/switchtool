@@ -55,10 +55,10 @@ void showhelp(void)
 		"        -m specific multi pulses,max number 10\n" \
 		"        index number of the specific pulse\n" \
 		"  [total time] time of the period,1ms\n" \
-		"  [high time] time of the pulse,1ms\n" \
+		"  [high time] time of the pulse,1ms\n\n" \
 		"Others:\n" \
 		"  - CTRL + C: stop \n" \
-		"  - BackSpace: delete input\n" \
+		"  - BackSpace: delete input\n\n" \
 		"Examples:\n" \
 		"  switch USB,period 1000ms,active time 500ms,another word duty cycles 0.5:\n" \
 		"      relay_k1 1000 500\n" \
@@ -77,7 +77,7 @@ void showhelp(void)
 int getcmdlen(char *pstr, char *pdest)
 {
 	int i = 0;
-	while(*pstr != ' ' & *pstr != '\r' & *pstr != '\n')
+	while(*pstr != ' ' && *pstr != '\r')
 	{	
 		i++;
 		*pdest++ = *pstr++;
@@ -108,13 +108,17 @@ int parsecmd(void)
 	while(1)
 	{
 		cmdlen = getcmdlen( pSrcBuf, pcmd->cmd );
-		if(cmdlen == 0 )
+		if(cmdlen == 0)
 			break;
 		if( g_recvcmdnum >= MAX_CMD_CNT)
 			break;
 		g_recvcmdnum++;
 		pcmd++;
-		pSrcBuf += cmdlen + 1;
+		pSrcBuf += cmdlen;
+		if(*pSrcBuf == '\r')
+			break;
+		else
+			pSrcBuf++;
 	}
 	
 	/////relay_k1 1000 500
