@@ -1,12 +1,21 @@
 #include "stm32f10x.h"
-#include "stm32f10x_it.h" 
+#include "stm32f10x_it.h"
 #include "usart.h"
 #include <string.h>
 #include <stdio.h>
 #include "pwm.h"
 
+
+// #define DEBUG_LOG
+#ifdef DEBUG_LOG
+#define LOG(format, ...) printf(format, ##__VA_ARGS__);
+#else
+#define LOG(format, ...)
+#endif
+const char* VERSION = "1.20";
+
 //max cmd para
-#define MAX_CMD_CNT 30
+#define MAX_CMD_CNT 50
 #define MAX_PULSE_CNT 10
 typedef struct{
 	int period;
@@ -16,22 +25,22 @@ PULSE recvMultiPulse[10];
 PULSE *pMultiPulse = NULL;
 
 typedef struct{
-	char cmd[10];	
-}CTLCMD; 
+	char cmd[10];
+}CTLCMD;
 
-CTLCMD recvcmd[ MAX_CMD_CNT ];  //max cmd para
+CTLCMD recvcmd[ MAX_CMD_CNT ];  //CTRl+C (0x03)ç»“æŸPWMæ‰§è¡Œ
 int g_recvcmdnum = 0;
 
 
-extern u8 USART_RX_BUF[USART_REC_LEN];     //½ÓÊÕ»º³å,×î´óUSART_REC_LEN¸ö×Ö½Ú.
-//½ÓÊÕ×´Ì¬
-//bit15£¬	½ÓÊÕÍê³É±êÖ¾
-//bit14£¬	½ÓÊÕµ½0x0d
-//bit13~0£¬	½ÓÊÕµ½µÄÓĞĞ§×Ö½ÚÊıÄ¿
-extern u16 USART_RX_STA;       //½ÓÊÕ×´Ì¬±ê¼Ç
+extern u8 USART_RX_BUF[USART_REC_LEN];     //æ¥æ”¶ç¼“å†²,æœ€å¤§USART_REC_LENä¸ªå­—èŠ‚.
+//æ¥æ”¶çŠ¶æ€
+//bit15ï¼Œ	æ¥æ”¶å®Œæˆæ ‡å¿—
+//bit14ï¼Œ	æ¥æ”¶åˆ°0x0d
+//bit13~0ï¼Œ	æ¥æ”¶åˆ°çš„æœ‰æ•ˆå­—èŠ‚æ•°ç›®
+extern u16 USART_RX_STA;       //æ¥æ”¶çŠ¶æ€æ ‡è®°
 
 u8 uUartRecvFlag = 0;
-u8 g_uExitPwmFlag =0; //CTRl+C (0x03)½áÊøPWMÖ´ĞĞ
+u8 g_uExitPwmFlag =0; //CTRl+C (0x03)ç»“æŸPWMæ‰§è¡Œ
 u8 g_umultipulsenum = 0;
 u8 g_umultipulsenumshadow = 0;
 
@@ -43,32 +52,37 @@ void Delay(u32 count)
 
 }
 
+
 void showhelp(void)
 {
 	printf(
-		"Usage: relay_k[num] [-para index] [total time] [high time]\n" \
-		"  [num] 1,2,3,4.k1 and k2 use to USB,k3 k4 used to switch power by default\n" \
-		"        if you want to change k1 and k2 to switch,P5,P6,P7jumpper \n" \
-		"        connect to P5,P6,P7 character side\n" \
-		"  [-para] support two paramter \n"	\
-		"        -s k3 k4 two channels switch by smae time\n" \
-		"        -m specific multi pulses,max number 10\n" \
-		"        index number of the specific pulse\n" \
-		"  [total time] time of the period,1ms\n" \
-		"  [high time] time of the pulse,1ms\n\n" \
-		"Others:\n" \
-		"  - CTRL + C: stop \n" \
-		"  - BackSpace: delete input\n\n" \
-		"Examples:\n" \
-		"  switch USB,period 1000ms,active time 500ms,another word duty cycles 0.5:\n" \
-		"      relay_k1 1000 500\n" \
-		"  switch k3,period 1000ms,active time 300ms,duty cycles 0.3:\n" \
-		"      relay_k3 1000 300\n" \
-		"  at the same time switch k3 k4,period 1000ms,active time 500ms,duty cycles 0.5:\n" \
-		"      relay_k3 -s 1000 500\n" \
-		"  specific multi pulses,\"_-__--___---\":\n" \
-		"      relay_k3 -m 3 1000 500 2000 1000 3000 1500\n" \
+		"Usage: relay_k[num] [-para index] [total time] [high time]\n\r\n\r" \
+		"  [num] 1,2,3,4.k1 and k2 use to USB,k3 k4 used to switch power by default\n\r" \
+		"        if you want to change k1 and k2 to switch, connect P5,P6,P7 jumpper \n\r" \
+		"        to P5,P6,P7 character side\n\r" \
+		"  [-para] Support two paramter \n\r"	\
+		"        -s k3 k4 two channels switch by same time\n\r" \
+		"        -m specific multi pulses,max number 10\n\r" \
+		"        -d two channels work on different frequence\n\r" \
+		"        index number of the specific pulse\n\r" \
+		"  [total time] Time of the period,10ms\n\r" \
+		"  [high time] Time of the pulse,10ms\n\r\n\r" \
+		"Others:\n\r" \
+		"  - CTRL + C: stop \n\r" \
+		"  - BackSpace: delete input\n\r\n\r" \
+		"Examples:\n\r" \
+		"  Switch USB,period 1000ms,active time 500ms,another word duty cycles 0.5:\n\r" \
+		"      relay_k1 100 50\n\r" \
+		"  Switch k3,period 1000ms,active time 300ms,duty cycles 0.3:\n\r" \
+		"      relay_k3 100 30\n\r" \
+		"  At the same time switch k3 k4,period 1000ms,active time 500ms,duty cycles 0.5:\n\r" \
+		"      relay_k3 -s 100 50\n\r" \
+		"  Specific multi pulses,\"_-__--___---\":\n\r" \
+		"      relay_k3 -m 3 100 50 200 100 300 150\n\r" \
+		"  Two channles work at same time\n\r" \
+		"      relay_k3 -d 2000 100 k3 5000 100\n\r" \
 	);
+
 	uUartRecvFlag = 0;
 	USART_RX_STA = 0;
 	printf("\r\n>"); //echo back
@@ -78,16 +92,167 @@ int getcmdlen(char *pstr, char *pdest)
 {
 	int i = 0;
 	while(*pstr != ' ' && *pstr != '\r')
-	{	
+	{
 		i++;
 		*pdest++ = *pstr++;
 	}
 	*pdest ='\0';
-	return i;	
+	return i;
+}
+void DoSubChannel(CTLCMD* pcmd)
+{
+	unsigned int totalB = 0, highB = 0;
+	totalB = atoi((pcmd+1)->cmd);
+	highB = atoi((pcmd+2)->cmd);
+	if(strcmp(pcmd->cmd, "k2") == 0) //PB1
+	{
+		LOG("Line%d relay_k2 %d %d\n\r",__LINE__,totalB, highB);
+		setTIM3CH4(totalB, highB);
+		TIM_Cmd(TIM3, ENABLE);  // enable TIM3
+	}
+	else if (strcmp(pcmd->cmd, "k3") == 0) //PB6
+	{
+		LOG("Line%d relay_k3 %d %d\n\r",__LINE__,totalB, highB);
+		setTIM4CH1(totalB, highB);
+		TIM_Cmd(TIM4, ENABLE);  // enable TIM4
+	}
+	else if (strcmp(pcmd->cmd, "k4") == 0) //PA2
+	{
+		LOG("Line%d relay_k4 %d %d\n\r", __LINE__,totalB, highB);
+		setTIM2CH3(totalB, highB);
+		TIM_Cmd(TIM2, ENABLE);  // enable TIM2
+	}
+	else {
+		printf("Line%d RROR:invalid paramter\n\r", __LINE__);
+		showhelp();
+		return;
+	}
 }
 
+void DoDoubleChannelPulse(CTLCMD* pcmd)
+{
+	// relay_k2 -d 2000 700 k2 2000 1500
+
+	NVIC_InitTypeDef NVIC_InitStructure;
+	CTLCMD* pTmp = pcmd;
+	unsigned int totalA = 0, highA = 0;
+
+	totalA = atoi((pcmd+2)->cmd);
+	highA = atoi((pcmd+3)->cmd);
+
+	if (strcmp(pcmd->cmd, "relay_k2") ==0 ) //multi pulse PB1
+	{
+		setTIM3CH4(totalA, highA);
+		TIM_Cmd(TIM3, ENABLE);
+		DoSubChannel(pcmd+4);
+	}
+	else if (strcmp(pcmd->cmd, "relay_k3") ==0 )  //multi pulse PB6
+	{
+		setTIM4CH1(totalA, highA);
+		TIM_Cmd(TIM4, ENABLE);
+		DoSubChannel(pcmd+4);
+	}
+	else if (strcmp(pcmd->cmd, "relay_k4") ==0 ) //multi pulse PA2
+	{
+		setTIM2CH3(totalA, highA);
+		TIM_Cmd(TIM4, ENABLE);
+		DoSubChannel(pcmd+4);
+	}
+	else {
+		printf("Line%d RROR:invalid paramter\n\r", __LINE__);
+		showhelp();
+		return ;
+	}
+}
+
+void DoMutiPulse(CTLCMD *pcmd)
+{
+	NVIC_InitTypeDef NVIC_InitStructure;
+	CTLCMD* pTmp = pcmd;
+	unsigned int total = 0, high = 0;
+	PULSE *pulse = recvMultiPulse;
+	int i=0;
+	pcmd +=2;
+	i = g_umultipulsenum = atoi(pcmd->cmd);
+	g_umultipulsenumshadow = g_umultipulsenum ;
+	if(i > MAX_PULSE_CNT)
+	{
+		LOG("ERROR:invalid paramter\n\r");
+		showhelp();
+		return ;
+	}
+	pcmd++;
+	total = atoi(pcmd->cmd);
+	pcmd++;
+	high = atoi(pcmd->cmd);
+	pulse->period = total ;
+	pulse->pulse = high ;
+	pulse++;
+	i--;
+	while(i--)
+	{
+		pcmd++;
+		pulse->period = atoi(pcmd->cmd);
+		pcmd++;
+		pulse->pulse = atoi(pcmd->cmd);
+		pulse ++;
+	}
+
+	if (strcmp( pTmp->cmd, "relay_k1") == 0) {
+		setTIM3CH3(total, high);
+		TIM_ITConfig(TIM3,TIM_IT_CC3,ENABLE);
+		NVIC_InitStructure.NVIC_IRQChannel = TIM3_IRQn;
+		NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;  //å…ˆå ä¼˜å…ˆçº§0çº§
+		NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;  //ä»ä¼˜å…ˆçº§3çº§
+		NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; //IRQé€šé“è¢«ä½¿èƒ½
+		NVIC_Init(&NVIC_InitStructure);  //æ ¹æ®NVIC_InitStructä¸­æŒ‡å®šçš„å‚æ•°åˆå§‹åŒ–å¤–è®¾NVICå¯„å­˜å™¨
+		TIM_Cmd(TIM3, ENABLE);
+	}
+	else if (strcmp(pTmp->cmd, "relay_k2") ==0 ) //multi pulse PB1
+	{
+		setTIM3CH4(total, high);
+		TIM_ITConfig(TIM3,TIM_IT_CC4,ENABLE);
+		NVIC_InitStructure.NVIC_IRQChannel = TIM3_IRQn;
+		NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;  //å…ˆå ä¼˜å…ˆçº§0çº§
+		NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;  //ä»ä¼˜å…ˆçº§3çº§
+		NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; //IRQé€šé“è¢«ä½¿èƒ½
+		NVIC_Init(&NVIC_InitStructure);  //æ ¹æ®NVIC_InitStructä¸­æŒ‡å®šçš„å‚æ•°åˆå§‹åŒ–å¤–è®¾NVICå¯„å­˜å™¨
+		TIM_Cmd(TIM3, ENABLE);
+	}
+	else if (strcmp(pTmp->cmd, "relay_k3") ==0 )  //multi pulse PB6
+	{
+		setTIM4CH1(total, high);
+
+		TIM_ITConfig(TIM4,TIM_IT_CC1,ENABLE);
+		NVIC_InitStructure.NVIC_IRQChannel = TIM4_IRQn;  //TIM4
+		NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;  //å…ˆå ä¼˜å…ˆçº§0çº§
+		NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;  //ä»ä¼˜å…ˆçº§3çº§
+		NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; //IRQé€šé“è¢«ä½¿èƒ½
+		NVIC_Init(&NVIC_InitStructure);  //æ ¹æ®NVIC_InitStructä¸­æŒ‡å®šçš„å‚æ•°åˆå§‹åŒ–å¤–è®¾NVICå¯„å­˜å™¨
+		TIM_Cmd(TIM4, ENABLE);
+	}
+	else if (strcmp(pTmp->cmd, "relay_k4") ==0 ) //multi pulse PA2
+	{
+		setTIM2CH3(total, high);
+
+		TIM_ITConfig(TIM2,TIM_IT_CC3,ENABLE);
+		NVIC_InitStructure.NVIC_IRQChannel = TIM2_IRQn;  //TIM2
+		NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;  //å…ˆå ä¼˜å…ˆçº§0çº§
+		NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;  //ä»ä¼˜å…ˆçº§3çº§
+		NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; //IRQé€šé“è¢«ä½¿èƒ½
+		NVIC_Init(&NVIC_InitStructure);  //æ ¹æ®NVIC_InitStructä¸­æŒ‡å®šçš„å‚æ•°åˆå§‹åŒ–å¤–è®¾NVICå¯„å­˜å™¨
+		TIM_Cmd(TIM2, ENABLE);
+	}
+	else {
+		printf("Line%d RROR:invalid paramter\n\r", __LINE__);
+		showhelp();
+		return ;
+	}
+}
+
+
 int parsecmd(void)
-{ 
+{
 	NVIC_InitTypeDef NVIC_InitStructure;
 	int recvlen = 0;
 	unsigned int total = 0, high = 0;
@@ -98,7 +263,7 @@ int parsecmd(void)
 	int i=0;
 	g_recvcmdnum = 0;
 	memset(&recvcmd, 0, sizeof(recvcmd));
-	
+
 	recvlen = strlen( (const char *)USART_RX_BUF );
 	if (recvlen < sizeof("relay_x"))
 	{
@@ -115,26 +280,28 @@ int parsecmd(void)
 		g_recvcmdnum++;
 		pcmd++;
 		pSrcBuf += cmdlen;
-		if(*pSrcBuf == '\r')
+		if((*pSrcBuf == '\r')
+			||(*pSrcBuf == '\n')
+			|| (*pSrcBuf == '\0'))
 			break;
 		else
 			pSrcBuf++;
 	}
-	
+
 	/////relay_k1 1000 500
 	pcmd = recvcmd;
 	if( g_recvcmdnum == 3)  //
 	{
 		if (strcmp( pcmd->cmd, "relay_k1") == 0) //PB0
-		{		
+		{
 			pcmd++;
 			total = strtol(pcmd->cmd, NULL, 10);
 			pcmd++;
 			high = strtol(pcmd->cmd, NULL, 10);
-			//printf("relay_k1 %d %d\n",total, high);
+			//LOG("relay_k1 %d %d\n",total, high);
 			setTIM3CH3(total, high);
-			TIM_Cmd(TIM3, ENABLE);  //Ê¹ÄÜTIM3			
-			
+			TIM_Cmd(TIM3, ENABLE);
+
 		}
 		else if(strcmp(pcmd->cmd, "relay_k2") == 0) //PB1
 		{
@@ -142,36 +309,36 @@ int parsecmd(void)
 			total = strtol(pcmd->cmd,NULL,10);
 			pcmd++;
 			high = strtol(pcmd->cmd,NULL,10);
-			//printf("relay_k2 %d %d\n",total, high);
+			//LOG("relay_k2 %d %d\n",total, high);
 			setTIM3CH4(total, high);
-			TIM_Cmd(TIM3, ENABLE);  //Ê¹ÄÜTIM3
-		}	
+			TIM_Cmd(TIM3, ENABLE);
+		}
 		else if (strcmp(pcmd->cmd, "relay_k3") == 0) //PB6
 		{
 			pcmd++;
 			total = strtol(pcmd->cmd,NULL,10);
 			pcmd++;
 			high = strtol(pcmd->cmd,NULL,10);
-			//printf("relay_k3 %d %d\n",total, high);
+			//LOG("relay_k3 %d %d\n",total, high);
 			setTIM4CH1(total, high);
-			TIM_Cmd(TIM4, ENABLE);  //Ê¹ÄÜTIM4
-		}	
+			TIM_Cmd(TIM4, ENABLE);
+		}
 		else if (strcmp(pcmd->cmd, "relay_k4") == 0) //PA2
 		{
 			pcmd++;
 			total = atoi(pcmd->cmd);
 			pcmd++;
 			high = atoi(pcmd->cmd);
-			//printf("relay_k4 %d %d\n",total, high);
+			//LOG("relay_k4 %d %d\n",total, high);
 			setTIM2CH3(total, high);
-			TIM_Cmd(TIM2, ENABLE);  //Ê¹ÄÜTIM2
+			TIM_Cmd(TIM2, ENABLE);
 		}
-		else 
+		else
 		{
-			printf("ERROR:invalid paramter\n");
+			printf("Line%d RROR:invalid paramter\n\r", __LINE__);
 			showhelp();
 			return -1;
-		}	
+		}
 	}
 	else if( g_recvcmdnum == 4)  //
 	{
@@ -179,237 +346,75 @@ int parsecmd(void)
 			||(strcmp( pcmd->cmd, "relay_k4") == 0))\
 			&(strcmp( (++pcmd)->cmd, "-s\0") == 0)
 			) //PB0
-		{		
+		{
 			pcmd++;
 			total = strtol(pcmd->cmd,NULL,10);
 			pcmd++;
 			high = strtol(pcmd->cmd,NULL,10);
-			//printf("%s -s %d %d\n",(pcmd-3)->cmd,total, high);
-			setDoubleTIM(total, high);		
+			//LOG("%s -s %d %d\n",(pcmd-3)->cmd,total, high);
+			setDoubleTIM(total, high);
 		}
 		else
 		{
-			printf("ERROR:invalid paramter\n");
+			printf("Line%d RROR:invalid paramter\n\r", __LINE__);
 			showhelp();
 		}
-	}	
+	}
 	//////////////////////multi pulse
-	else if( g_recvcmdnum > 4)  //
+	else if((g_recvcmdnum > 4) && (strcmp((pcmd + 1)->cmd, "-m\0") == 0))  //
 	{
-		if ((strcmp( pcmd->cmd, "relay_k1") == 0) \
-			&(strcmp( (pcmd + 1)->cmd, "-m\0") == 0)
-			) //multi pulse PB0
-		{		
-			pcmd +=2;
-			i = g_umultipulsenum = atoi(pcmd->cmd);			
-			g_umultipulsenumshadow = g_umultipulsenum ;
-			if(i > MAX_PULSE_CNT)
-			{
-				printf("ERROR:invalid paramter\n");
-				showhelp();
-				return -1;
-			}
-			pcmd++;
-			total = atoi(pcmd->cmd);
-			pcmd++;
-			high = atoi(pcmd->cmd);
-			//printf("relay_k1 %d %d\n",total, high);
-			pulse->period = total ;
-			pulse->pulse = high ;
-			pulse++;
-			i--;
-			while(i--)
-			{
-				pcmd++;
-				pulse->period = atoi(pcmd->cmd);
-				pcmd++;
-				pulse->pulse = atoi(pcmd->cmd);
-				pulse ++;
-			}
-			setTIM3CH3(total, high);
-			
-			TIM_ITConfig(TIM3,TIM_IT_CC3,ENABLE);
-			NVIC_InitStructure.NVIC_IRQChannel = TIM3_IRQn;  //TIM3ÖĞ¶Ï
-			NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;  //ÏÈÕ¼ÓÅÏÈ¼¶0¼¶
-			NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;  //´ÓÓÅÏÈ¼¶3¼¶
-			NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; //IRQÍ¨µÀ±»Ê¹ÄÜ
-			NVIC_Init(&NVIC_InitStructure);  //³õÊ¼»¯ÍâÉèNVIC¼Ä´æÆ÷
-			TIM_Cmd(TIM3, ENABLE);  //Ê¹ÄÜTIM3
-		}
-		else if((strcmp(pcmd->cmd, "relay_k2") ==0 ) \
-				&(strcmp( (pcmd + 1)->cmd, "-m\0") == 0)
-				) //multi pulse PB1
-		{
-			pcmd +=2;
-			i = g_umultipulsenum = atoi(pcmd->cmd);			
-			g_umultipulsenumshadow = g_umultipulsenum ;
-			if(i > MAX_PULSE_CNT)
-			{
-				printf("ERROR:invalid paramter\n");
-				showhelp();
-				return -1;
-			}
-			pcmd++;
-			total = atoi(pcmd->cmd);
-			pcmd++;
-			high = atoi(pcmd->cmd);
-			//printf("relay_k2 %d %d\n",total, high);
-			pulse->period = total ;
-			pulse->pulse = high ;
-			pulse++;
-			i--;
-			while(i--)
-			{
-				pcmd++;
-				pulse->period = atoi(pcmd->cmd);
-				pcmd++;
-				pulse->pulse = atoi(pcmd->cmd);
-				pulse ++;
-			}
-			setTIM3CH4(total, high);
-			
-			TIM_ITConfig(TIM3,TIM_IT_CC4,ENABLE);
-			NVIC_InitStructure.NVIC_IRQChannel = TIM3_IRQn;  //TIM3ÖĞ¶Ï
-			NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;  //ÏÈÕ¼ÓÅÏÈ¼¶0¼¶
-			NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;  //´ÓÓÅÏÈ¼¶3¼¶
-			NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; //IRQÍ¨µÀ±»Ê¹ÄÜ
-			NVIC_Init(&NVIC_InitStructure);  //¸ù¾İNVIC_InitStructÖĞÖ¸¶¨µÄ²ÎÊı³õÊ¼»¯ÍâÉèNVIC¼Ä´æÆ÷
-			TIM_Cmd(TIM3, ENABLE);  //Ê¹ÄÜTIM3
-		}	
-		else if ((strcmp(pcmd->cmd, "relay_k3") ==0 ) \
-				&(strcmp( (pcmd + 1)->cmd, "-m\0") == 0)
-				)  //multi pulse PB6
-		{
-			pcmd +=2;
-			i = g_umultipulsenum = atoi(pcmd->cmd);			
-			g_umultipulsenumshadow = g_umultipulsenum ;
-			if(i > MAX_PULSE_CNT)
-			{
-				printf("ERROR:invalid paramter\n");
-				showhelp();
-				return -1;
-			}
-			pcmd++;
-			total = atoi(pcmd->cmd);
-			pcmd++;
-			high = atoi(pcmd->cmd);
-			//printf("relay_k3 %d %d\n",total, high);
-			pulse->period = total ;
-			pulse->pulse = high ;
-			pulse++;
-			i--;
-			while(i--)
-			{
-				pcmd++;
-				pulse->period = atoi(pcmd->cmd);
-				pcmd++;
-				pulse->pulse = atoi(pcmd->cmd);
-				pulse ++;
-			}
-			setTIM4CH1(total, high);
-			
-			TIM_ITConfig(TIM4,TIM_IT_CC1,ENABLE);
-			NVIC_InitStructure.NVIC_IRQChannel = TIM4_IRQn;  //TIM4ÖĞ¶Ï
-			NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;  //ÏÈÕ¼ÓÅÏÈ¼¶0¼¶
-			NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;  //´ÓÓÅÏÈ¼¶3¼¶
-			NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; //IRQÍ¨µÀ±»Ê¹ÄÜ
-			NVIC_Init(&NVIC_InitStructure);  //¸ù¾İNVIC_InitStructÖĞÖ¸¶¨µÄ²ÎÊı³õÊ¼»¯ÍâÉèNVIC¼Ä´æÆ÷
-			TIM_Cmd(TIM4, ENABLE);  //Ê¹ÄÜTIM4
-		}	
-		else if ((strcmp(pcmd->cmd, "relay_k4") ==0 ) \
-				&(strcmp( (pcmd + 1)->cmd, "-m\0") == 0)
-				)  //multi pulse PA2
-		{
-			pcmd +=2;
-			i = g_umultipulsenum = atoi(pcmd->cmd);			
-			g_umultipulsenumshadow = g_umultipulsenum ;
-			if(i > MAX_PULSE_CNT)
-			{
-				printf("ERROR:invalid paramter\n");
-				showhelp();
-				return -1;
-			}
-			pcmd++;
-			total = atoi(pcmd->cmd);
-			pcmd++;
-			high = atoi(pcmd->cmd);
-			//printf("relay_k4 %d %d\n",total, high);
-			pulse->period = total ;
-			pulse->pulse = high ;
-			pulse++;
-			i--;
-			while(i--)
-			{
-				pcmd++;
-				pulse->period = atoi(pcmd->cmd);
-				pcmd++;
-				pulse->pulse = atoi(pcmd->cmd);
-				pulse ++;
-			}
-			setTIM2CH3(total, high);
-			
-			TIM_ITConfig(TIM2,TIM_IT_CC3,ENABLE);
-			NVIC_InitStructure.NVIC_IRQChannel = TIM2_IRQn;  //TIM2ÖĞ¶Ï
-			NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;  //ÏÈÕ¼ÓÅÏÈ¼¶0¼¶
-			NVIC_InitStructure.NVIC_IRQChannelSubPriority = 3;  //´ÓÓÅÏÈ¼¶3¼¶
-			NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; //IRQÍ¨µÀ±»Ê¹ÄÜ
-			NVIC_Init(&NVIC_InitStructure);  //¸ù¾İNVIC_InitStructÖĞÖ¸¶¨µÄ²ÎÊı³õÊ¼»¯ÍâÉèNVIC¼Ä´æÆ÷
-			TIM_Cmd(TIM2, ENABLE);  //Ê¹ÄÜTIM2
-		}
-		else 
-		{
-			printf("ERROR:invalid paramter\n");
-			showhelp();
-			return -1;
-		}	
+		DoMutiPulse(pcmd);
+	}
+	else if((g_recvcmdnum > 4) && (strcmp( (pcmd + 1)->cmd, "-d\0") == 0)) {
+		DoDoubleChannelPulse(pcmd);
 	}
 	else
-	{	
+	{
 		showhelp();
 		return -1;
 	}
 	return 0 ;
 }
 
-//ÏµÍ³Ê±ÖÓ³õÊ¼»¯º¯Êı
-//pll:Ñ¡ÔñµÄ±¶ÆµÊı£¬´Ó2¿ªÊ¼£¬×î´óÖµÎª16		 
+//ç³»ç»Ÿæ—¶é’Ÿåˆå§‹åŒ–å‡½æ•°
+//pll:é€‰æ‹©çš„å€é¢‘æ•°ï¼Œä»2å¼€å§‹ï¼Œæœ€å¤§å€¼ä¸º16
 void Stm32_Clock_Init(u8 PLL)
 {
-	unsigned char temp=0;   
-	//MYRCC_DeInit();		  //¸´Î»²¢ÅäÖÃÏòÁ¿±í
- 	RCC->CR|=0x00010000;  //Íâ²¿¸ßËÙÊ±ÖÓÊ¹ÄÜHSEON
-	while(!(RCC->CR>>17));//µÈ´ıÍâ²¿Ê±ÖÓ¾ÍĞ÷
+	unsigned char temp=0;
+	//MYRCC_DeInit();		  //å¤ä½å¹¶é…ç½®å‘é‡è¡¨
+ 	RCC->CR|=0x00010000;  //å¤–éƒ¨é«˜é€Ÿæ—¶é’Ÿä½¿èƒ½HSEON
+	while(!(RCC->CR>>17));//ç­‰å¾…å¤–éƒ¨æ—¶é’Ÿå°±ç»ª
 	RCC->CFGR=0X00000700; //APB1=DIV4;APB2=DIV1;AHB=DIV2;
-	PLL-=2;//µÖÏû2¸öµ¥Î»
-	RCC->CFGR|=PLL<<18;   //ÉèÖÃPLLÖµ 2~16
-	RCC->CFGR|=1<<16;	  //PLLSRC ON 
-	FLASH->ACR|=0x32;	  //FLASH 2¸öÑÓÊ±ÖÜÆÚ
+	PLL-=2;//æŠµæ¶ˆ2ä¸ªå•ä½
+	RCC->CFGR|=PLL<<18;   //è®¾ç½®PLLå€¼ 2~16
+	RCC->CFGR|=1<<16;	  //PLLSRC ON
+	FLASH->ACR|=0x32;	  //FLASH 2ä¸ªå»¶æ—¶å‘¨æœŸ
 
 	RCC->CR|=0x01000000;  //PLLON
-	while(!(RCC->CR>>25));//µÈ´ıPLLËø¶¨
-	RCC->CFGR|=0x00000002;//PLL×÷ÎªÏµÍ³Ê±ÖÓ	 
-	while(temp!=0x02)     //µÈ´ıPLL×÷ÎªÏµÍ³Ê±ÖÓÉèÖÃ³É¹¦
-	{   
+	while(!(RCC->CR>>25));//ç­‰å¾…PLLé”å®š
+	RCC->CFGR|=0x00000002;//PLLä½œä¸ºç³»ç»Ÿæ—¶é’Ÿ
+	while(temp!=0x02)     //ç­‰å¾…PLLä½œä¸ºç³»ç»Ÿæ—¶é’Ÿè®¾ç½®æˆåŠŸ
+	{
 		temp=RCC->CFGR>>2;
 		temp&=0x03;
-	}    
-}		    
+	}
+}
 
 int main(void)
-{	
+{
 	RCC_PCLK1Config(RCC_HCLK_Div4);
 	// uart init
-	uart_init(115200);	
+	uart_init(115200);
 	// TIM init and GPIO init
-	TIM_PWM_Init(999);   //default 72MHz/(999+1) = 1KHz
-	printf("***    welcome to use switch tool    ***\r\n>"); 
+	TIM_PWM_Init(9999);   //default 72MHz/(9999+1) = 100Hz
+	printf("***     welcome to use switch tool     ***\r\n" \
+				 "***    Versin:%s,Date:"__DATE__"   ***\r\n>" \
+	,VERSION);
 
 	while(1)
 	{
-		
 		if (uUartRecvFlag == 1)
 		{//start
-			//printf((char *)USART_RX_BUF);
 			parsecmd();
 			pMultiPulse = recvMultiPulse;
 			pMultiPulse++ ;
@@ -424,7 +429,7 @@ int main(void)
 			USART_RX_STA = 0;
 			memset(&USART_RX_STA, 0 , sizeof(USART_RX_STA));
 			pMultiPulse = recvMultiPulse;
-					
+
 			TIM_ITConfig(TIM2,TIM_IT_CC3,DISABLE);
 			TIM_ITConfig(TIM3,TIM_IT_CC3,DISABLE);
 			TIM_ITConfig(TIM3,TIM_IT_CC4,DISABLE);
@@ -440,115 +445,117 @@ void TIM2_IRQHandler(void)
 	{
 		if(--g_umultipulsenumshadow)
 		{
-			TIM_ClearITPendingBit(TIM2, TIM_FLAG_CC3  );  //Çå³ıTIMxµÄÖĞ¶Ï´ı´¦ÀíÎ»:TIM ÖĞ¶ÏÔ´
-			printf("TIM2_TIM_FLAG_CC3 Handler\r\n");
+			TIM_ClearITPendingBit(TIM2, TIM_FLAG_CC3  );  //æ¸…é™¤TIMxçš„ä¸­æ–­å¾…å¤„ç†ä½:TIM ä¸­æ–­æº
+			LOG("TIM2_TIM_FLAG_CC3 Handler\r\n");
 
-			TIM2->CCR3 = pMultiPulse->pulse; 
-			TIM2->ARR = pMultiPulse->period; 
-			
+			TIM2->CCR3 = pMultiPulse->pulse;
+			TIM2->ARR = pMultiPulse->period;
+
 			TIM_ITConfig(TIM2,TIM_IT_CC3,ENABLE);
 			pMultiPulse++ ;
-		}	
+		}
 		else
 		{
-			TIM_ClearITPendingBit(TIM2, TIM_FLAG_CC3  );  //Çå³ıTIMxµÄÖĞ¶Ï´ı´¦ÀíÎ»:TIM ÖĞ¶ÏÔ´
-			printf("TIM2_TIM_FLAG_CC3 Handler\r\n");
+			TIM_ClearITPendingBit(TIM2, TIM_FLAG_CC3  );
+			LOG("TIM2_TIM_FLAG_CC3 Handler\r\n");
 			pMultiPulse = recvMultiPulse;
 			g_umultipulsenumshadow = g_umultipulsenum;
-			
-			TIM2->CCR3 = pMultiPulse->pulse; 
-			TIM2->ARR = pMultiPulse->period; 
+
+			TIM2->CCR3 = pMultiPulse->pulse;
+			TIM2->ARR = pMultiPulse->period;
 			TIM_ITConfig(TIM2,TIM_IT_CC3,ENABLE);
 			pMultiPulse++ ;
-		}	
+		}
 	}
 }
+
 void TIM3_IRQHandler(void)
 {
-	printf("TIM3_IRQHandler\r\n");
+	LOG("TIM3_IRQHandler\r\n");
 	if(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC3)== SET )
 	{
 		if(--g_umultipulsenumshadow)  //k1
 		{
-			TIM_ClearITPendingBit(TIM3, TIM_FLAG_CC3  );  //Çå³ıTIMxµÄÖĞ¶Ï´ı´¦ÀíÎ»:TIM ÖĞ¶ÏÔ´
-			printf("TIM3_TIM_FLAG_CC3 Handler\r\n");
+			TIM_ClearITPendingBit(TIM3, TIM_FLAG_CC3  );
+			LOG("TIM3_TIM_FLAG_CC3 Handler\r\n");
 
 
-			TIM3->CCR3 = pMultiPulse->pulse; 
-			TIM3->ARR = pMultiPulse->period; 
-			
-			TIM_ITConfig(TIM3,TIM_IT_CC3,ENABLE);//¿ªÖĞ¶Ï
+			TIM3->CCR3 = pMultiPulse->pulse;
+			TIM3->ARR = pMultiPulse->period;
+
+			TIM_ITConfig(TIM3,TIM_IT_CC3,ENABLE);
 			pMultiPulse++ ;
-		}	
+		}
 		else
 		{
-			TIM_ClearITPendingBit(TIM3, TIM_FLAG_CC4  );  //Çå³ıTIMxµÄÖĞ¶Ï´ı´¦ÀíÎ»:TIM ÖĞ¶ÏÔ´
-			printf("TIM3_TIM_FLAG_CC3 Handler\r\n");
+			TIM_ClearITPendingBit(TIM3, TIM_FLAG_CC4  );
+			LOG("TIM3_TIM_FLAG_CC3 Handler\r\n");
 			pMultiPulse = recvMultiPulse;
 			g_umultipulsenumshadow = g_umultipulsenum;
-			
-			TIM3->CCR4 = pMultiPulse->pulse; 
-			TIM3->ARR = pMultiPulse->period; 
+
+			TIM3->CCR4 = pMultiPulse->pulse;
+			TIM3->ARR = pMultiPulse->period;
 			TIM_ITConfig(TIM3,TIM_IT_CC4,ENABLE);
 			pMultiPulse++ ;
-		}	
+		}
 	}
 	else if(TIM_GetFlagStatus(TIM3,TIM_FLAG_CC4)== SET )
 	{
 		if(--g_umultipulsenumshadow)
 		{
-			TIM_ClearITPendingBit(TIM3, TIM_FLAG_CC4  );  //Çå³ıTIMxµÄÖĞ¶Ï´ı´¦ÀíÎ»:TIM ÖĞ¶ÏÔ´
-			printf("TIM3_TIM_FLAG_CC4 Handler\r\n");
+			TIM_ClearITPendingBit(TIM3, TIM_FLAG_CC4  );
+			LOG("TIM3_TIM_FLAG_CC4 Handler\r\n");
 
 
-			TIM3->CCR4 = pMultiPulse->pulse; 
-			TIM3->ARR = pMultiPulse->period; 
-			
+			TIM3->CCR4 = pMultiPulse->pulse;
+			TIM3->ARR = pMultiPulse->period;
+
 			TIM_ITConfig(TIM3,TIM_IT_CC4,ENABLE);
 			pMultiPulse++ ;
-		}	
+		}
 		else
 		{
-			TIM_ClearITPendingBit(TIM3, TIM_FLAG_CC4  );  //Çå³ıTIMxµÄÖĞ¶Ï´ı´¦ÀíÎ»:TIM ÖĞ¶ÏÔ´
-			printf("TIM3_TIM_FLAG_CC4 Handler\r\n");
+			TIM_ClearITPendingBit(TIM3, TIM_FLAG_CC4  );
+			LOG("TIM3_TIM_FLAG_CC4 Handler\r\n");
 			pMultiPulse = recvMultiPulse;
 			g_umultipulsenumshadow = g_umultipulsenum;
-			
-			TIM3->CCR4 = pMultiPulse->pulse; 
-			TIM3->ARR = pMultiPulse->period; 
+
+			TIM3->CCR4 = pMultiPulse->pulse;
+			TIM3->ARR = pMultiPulse->period;
 			TIM_ITConfig(TIM3,TIM_IT_CC4,ENABLE);
 			pMultiPulse++ ;
-		}	
+		}
 	}
-		
+
 }
+
 void TIM4_IRQHandler(void)
 {
-	printf("TIM4_IRQHandler\r\n");
+	LOG("TIM4_IRQHandler\r\n");
 	if(TIM_GetFlagStatus(TIM4,TIM_FLAG_CC1)== SET )
 	{
 		if(--g_umultipulsenumshadow)
 		{
-			TIM_ClearITPendingBit(TIM4, TIM_FLAG_CC1  );  //Çå³ıTIMxµÄÖĞ¶Ï´ı´¦ÀíÎ»:TIM ÖĞ¶ÏÔ´
-			printf("TIM4_TIM_FLAG_CC1 Handler\r\n");
+			TIM_ClearITPendingBit(TIM4, TIM_FLAG_CC1  );
+			LOG("TIM4_TIM_FLAG_CC1 Handler\r\n");
 
-			TIM4->CCR1 = pMultiPulse->pulse; 
-			TIM4->ARR = pMultiPulse->period; 
-			
+			TIM4->CCR1 = pMultiPulse->pulse;
+			TIM4->ARR = pMultiPulse->period;
+
 			TIM_ITConfig(TIM4,TIM_IT_CC1,ENABLE);
 			pMultiPulse++ ;
-		}	
+		}
 		else
 		{
-			TIM_ClearITPendingBit(TIM4, TIM_FLAG_CC1  );  //Çå³ıTIMxµÄÖĞ¶Ï´ı´¦ÀíÎ»:TIM ÖĞ¶ÏÔ´
-			printf("TIM4_TIM_FLAG_CC1 Handler\r\n");
+			TIM_ClearITPendingBit(TIM4, TIM_FLAG_CC1  );
+			LOG("TIM4_TIM_FLAG_CC1 Handler\r\n");
 			pMultiPulse = recvMultiPulse;
 			g_umultipulsenumshadow = g_umultipulsenum;
-			
-			TIM4->CCR1 = pMultiPulse->pulse; 
-			TIM4->ARR = pMultiPulse->period; 
+
+			TIM4->CCR1 = pMultiPulse->pulse;
+			TIM4->ARR = pMultiPulse->period;
 			TIM_ITConfig(TIM4,TIM_IT_CC1,ENABLE);
 			pMultiPulse++ ;
-		}	
+		}
 	}
 }
