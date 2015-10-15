@@ -79,8 +79,8 @@ void showhelp(void)
 		"      relay_k3 -s 100 50\n\r" \
 		"  Specific multi pulses,\"_-__--___---\":\n\r" \
 		"      relay_k3 -m 3 100 50 200 100 300 150\n\r" \
-		"  Two channles work at same time\n\r" \
-		"      relay_k3 -d 2000 100 k3 5000 100\n\r" \
+		"  K3 K4 two channles work at different time.\n\r" \
+		"      relay_k3 -d 2000 100 k4 5000 100\n\r" \
 	);
 
 	uUartRecvFlag = 0;
